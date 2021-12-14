@@ -8,9 +8,9 @@ const User=require('./models/user')
 const {registerValidation,loginValidation}=require('./validation');
 const bcrypt=require('bcryptjs')
 const jwt=require('jsonwebtoken')
-const verify=require('./routes/verifyToken')
 
-mongoose.connect('mongodb+srv://rhino11:rhino11@cluster0.klzdx.mongodb.net/myFirstDatabase?retryWrites=true&w=majority');
+
+mongoose.connect('mongodb+srv://rhino11:rhino11@cluster0.klzdx.mongodb.net/pagination?retryWrites=true&w=majority');
 
 mongoose.connection.on('connected',connected=>{
     console.log("connect with database")
@@ -19,17 +19,77 @@ mongoose.connection.on('connected',connected=>{
 app.use(bodyParser.urlencoded({extended:false}))
 app.use(bodyParser.json())
 
+function  paginatatedresult(model){
 
+    return async (req,res,next)=>{
+        const page=parseInt(req.query.page);
+        const limit=parseInt(req.query.limit);
 
+        const startIndex=(page-1)*limit;
+        const endIndex=page*limit;
 
-//private route access when token is verified
-app.get('/',verify,(req,res)=>{
-    res.send(req.user);
-    
+        console.log(startIndex,endIndex)
+
+        const result={}
+
+        if(endIndex < await model.countDocuments().exec()){
+            result.next={
+                page:page+1,
+                limit:limit,
+            }
+        }
+
+        if(startIndex > 0){
+            result.previous={
+                page:page-1,
+                limit:limit,
+            }
+        }
+            try{
+            result.result=await model.find({}).sort({name:-1}).limit(limit).skip(startIndex).exec()
+            res.paginatatedresult=result
+            next();
+        }catch(err){
+            res.send(err);
+        }
+    }
+}
+
+//pagination-skip,limit,sort
+
+app.get('/user',paginatatedresult(User),async (req,res)=>{
+res.json(res.paginatatedresult)
 })
 
-//SIGN UP
-app.post('/signup',async (req,res)=>{
+
+//selection key-select user by id
+
+app.get('/iduser/:id',async (req,res)=>{
+    const result=await User.findById(req.params.id)
+    res.send(result)
+
+    })
+
+//search a user using regex
+app.get('/search',async (req,res)=>{
+    const searchFieldName=req.query.name;
+    const searchFieldEmail=req.query.email;
+
+    var regex1=new RegExp(searchFieldName,'i')
+    var regex2=new RegExp(searchFieldEmail,'i')
+    await User.find({name:regex1,email:regex2})
+    .then(data=>{
+        res.send(data);
+    })
+    })
+// get all user
+app.get('/alluser',async (req,res)=>{
+   const result=await User.find({})
+   res.json(result)
+    })
+
+//add user
+app.post('/adduser',async (req,res)=>{
 
     //lets validate the data before we a user
     const validation=registerValidation(req.body)
@@ -51,6 +111,7 @@ app.post('/signup',async (req,res)=>{
         name:req.body.name,
         email:req.body.email,
         password:hashpassword,
+       
     });
 
     try{
@@ -62,40 +123,6 @@ app.post('/signup',async (req,res)=>{
             errName:err
         });
     }
-
-    // res.status(200).json({
-    //     name:req.body.name,
-    //     email:req.body.email,
-    //     password:req.body.password,
-    // })
-})
-
-//LOGIN
-app.post('/login',async (req,res)=>{
-
-    //lets validate the data before we a user
-    const validation=loginValidation(req.body)
-    
-    if(validation.error) return res.status(400)
-    .send(validation.error.details[0].message)
-
-    //checking if user is already in database
-    const user=await User.findOne({email:req.body.email})
-    if(!user) return res.status(400).send('email not found')
-    
-    //PASSWORD is CORRECT
-    const validpassword=await bcrypt.compare(req.body.password,user.password)
-    if(!validpassword) return res.status(400).send('Invalid password')
-
-    //create and assign a token
-    const token=jwt.sign({_id:user._id},'gautam123')
-    res.header('auth-token',token).status(200).json({
-        user:user._id,
-        token:token
-    })
-  
-
-    
 
 })
 
